@@ -206,54 +206,96 @@
   <button class="save-btn" onclick="savePage()" style="display: none;">💾 保存文本修改</button>
 
 <script>
-  // 1. 检查网址里是否有正确的编辑密钥 (这里假设密钥是 110801)
+  // 1. 检查网址里的编辑密钥
   const urlParams = new URLSearchParams(window.location.search);
-  const isEditMode = urlParams.get('edit') === '110801'; // 确保这里和 URL 保持一致
+  const isEditMode = urlParams.get('edit') === '110801';
 
   const notice = document.querySelector('.edit-notice');
   const saveBtn = document.querySelector('.save-btn');
-  // 获取所有带有 contenteditable 属性的元素
   const editableElements = document.querySelectorAll('[contenteditable]');
 
+  // GitHub 仓库配置
+  const GITHUB_USER = 'nanwang128-ux';  // 你的 GitHub 用户名
+  const GITHUB_REPO = 'portfolio';      // 你的仓库名称
+  const FILE_PATH = 'index.html';       // 要更新的文件名
+
   if (isEditMode) {
-    // 2. 验证成功：开启编辑功能，显示提示和按钮
     if(notice) notice.style.display = 'block';
     if(saveBtn) saveBtn.style.display = 'inline-block';
-    // 确保所有可编辑元素的属性为 true
-    editableElements.forEach(el => {
-      el.setAttribute('contenteditable', 'true');
-    });
+    editableElements.forEach(el => el.setAttribute('contenteditable', 'true'));
   } else {
-    // 3. 验证失败/普通用户：关闭编辑功能，隐藏提示和按钮
     if(notice) notice.style.display = 'none';
     if(saveBtn) saveBtn.style.display = 'none';
-    // 将所有可编辑元素的属性设为 false
-    editableElements.forEach(el => {
-      el.setAttribute('contenteditable', 'false');
-    });
+    editableElements.forEach(el => el.setAttribute('contenteditable', 'false'));
   }
 
-  // 保存修改后的 HTML 页面
-  function savePage() {
-    notice.style.display = 'none';
-    saveBtn.style.display = 'none';
-    
-    // 导出前把所有元素的 contenteditable 设为 false，确保导出给别人的是只读版
-    editableElements.forEach(el => el.setAttribute('contenteditable', 'false'));
+  // 点击保存时，直接调用 API 更新 GitHub 仓库
+  async function savePage() {
+    // 提示输入 GitHub Token
+    let token = localStorage.getItem('gh_token');
+    if (!token) {
+      token = prompt('请输入你的 GitHub Personal Access Token (第一次输入后会自动记住):');
+      if (!token) return alert('未提供 Token，无法保存到 GitHub！');
+      localStorage.setItem('gh_token', token);
+    }
 
-    const htmlContent = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
-    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "portfolio_readonly.html";
-    a.click();
+    saveBtn.innerText = '⏳ 正在同步更新到 GitHub...';
+    saveBtn.disabled = true;
 
-    // 恢复编辑状态
-    notice.style.display = 'block';
-    saveBtn.style.display = 'inline-block';
-    editableElements.forEach(el => el.setAttribute('contenteditable', 'true'));
+    try {
+      // 1. 准备只读版的 HTML 内容
+      notice.style.display = 'none';
+      saveBtn.style.display = 'none';
+      editableElements.forEach(el => el.setAttribute('contenteditable', 'false'));
+
+      const htmlContent = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+
+      // 恢复页面编辑状态
+      notice.style.display = 'block';
+      saveBtn.style.display = 'inline-block';
+      editableElements.forEach(el => el.setAttribute('contenteditable', 'true'));
+
+      // 2. 获取 GitHub 上当前文件的 SHA 校验码
+      const getFileUrl = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${FILE_PATH}`;
+      const fileRes = await fetch(getFileUrl, {
+        headers: { 'Authorization': `token ${token}` }
+      });
+      
+      if (!fileRes.ok) throw new Error('读取 GitHub 文件失败，请检查 Token 权限或仓库路径！');
+      const fileData = await fileRes.json();
+      const sha = fileData.sha;
+
+      // 3. 将 HTML 转换为 UTF-8 Base64 编码
+      const encodedContent = btoa(unescape(encodeURIComponent(htmlContent)));
+
+      // 4. 调用 API 提交覆盖文件
+      const updateRes = await fetch(getFileUrl, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `token ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: 'Update portfolio text via web editor',
+          content: encodedContent,
+          sha: sha
+        })
+      });
+
+      if (updateRes.ok) {
+        alert('🎉 成功更新到 GitHub！等待 1-2 分钟刷新线上网址即可看到最新效果。');
+      } else {
+        const errorData = await updateRes.json();
+        alert('❌ 更新失败: ' + (errorData.message || '权限不足'));
+        localStorage.removeItem('gh_token'); // 出错时清除可能无效的 token
+      }
+    } catch (err) {
+      alert('网络或提交错误: ' + err.message);
+    } finally {
+      saveBtn.innerText = '💾 保存修改到 GitHub';
+      saveBtn.disabled = false;
+    }
   }
 </script>
-
 
 </body></html>
